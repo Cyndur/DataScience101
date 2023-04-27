@@ -1,0 +1,631 @@
+---
+title: "Covid_Project"
+output: html_document
+date: "2023-03-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+A study of Covid cases in the USA at the county level in an effort to determine if there are factors which increase risk of cases and/or death
+
+### Libraries needed for analysis:
+
+```{r Imports}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(rvest)
+```
+### Source of Covid data:
+
+
+```{r get_jhu_data}
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+
+filenames <- c("time_series_covid19_confirmed_global.csv", 
+"time_series_covid19_deaths_global.csv",
+"time_series_covid19_confirmed_US.csv",
+"time_series_covid19_deaths_US.csv")
+
+
+UID_URL <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+urls <- str_c(url_in,filenames)
+
+              
+```
+
+### Importing and massaging of Covid data:
+
+```{r import_data, message = FALSE}
+us_cases <- read_csv(urls[3])
+us_deaths <- read_csv(urls[4])
+us_deaths <- read_csv(urls[4])
+uid_lookup = read_csv(UID_URL)
+```
+
+```{r US_Cases}
+us_cases <- us_cases %>%
+  pivot_longer(cols = -c(UID:Combined_Key),
+                         names_to = "date",
+                         values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))
+```
+
+
+```{r us_deaths}
+us_deaths <- us_deaths %>%
+  pivot_longer(cols = -c(UID:Population),
+                         names_to = "date",
+                         values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))
+```
+
+
+```{r US_Total}
+US <- us_cases %>%
+  full_join(us_deaths)
+```
+
+### Summary of US Covid data:
+
+```{r Summary of US Cases}
+summary(US)
+```
+
+
+### Grouping data by state and adding rate fields:
+
+```{R US_Grouping}
+US_by_State <- US %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population) %>%
+  select(Province_State, Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+         
+```
+
+### Grouping data for the entire country and adding rate fields:
+
+```{R US_Total_Summary}
+US_Totals <- US_by_State %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population) %>%
+  select(Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+         
+```
+
+
+### A view of US cases and deaths over time:
+
+```{R US_Total_Visual}
+US_Totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) + 
+  geom_line(aes(color = "cases")) + 
+  geom_point(aes(color = "cases")) + 
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) + 
+  scale_y_log10() + 
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) + 
+  labs(title = "COVID19 in US", y=NULL)
+         
+```
+
+### A view of Colorado cases and deaths over time:
+
+```{R US_NY_Visual}
+state <- "Colorado"
+US_by_State %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) + 
+  geom_line(aes(color = "cases")) + 
+  geom_point(aes(color = "cases")) + 
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) + 
+  scale_y_log10() + 
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) + 
+  labs(title = str_c("COVID19 in ", state), y=NULL)
+         
+```
+
+### While the curve appears to flatten, let us determine if new cases have actually reduced:
+
+```{R New Deaths and Cases}
+
+US_by_State <- US_by_State %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+US_Totals <- US_Totals %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+```
+
+
+
+
+```{R US_New_Visual}
+
+US_Totals %>%
+  ggplot(aes(x = date, y = new_cases)) + 
+  geom_line(aes(color = "new_cases")) + 
+  geom_point(aes(color = "new_cases")) + 
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) + 
+  scale_y_log10() + 
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) + 
+  labs(title = str_c("COVID19 New Cases and Deaths in US"), y=NULL)
+```
+
+
+```{R US_NY_Visual2}
+state <- "Colorado"
+US_by_State %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = new_cases)) + 
+  geom_line(aes(color = "new_cases")) + 
+  geom_point(aes(color = "new_cases")) + 
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) + 
+  scale_y_log10() + 
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) + 
+  labs(title = str_c("COVID19 New Cases and Deaths in ", state), y=NULL)
+
+
+         
+```
+
+### This model helps determine if deaths in the population are linked to cases in the population:
+
+```{R US_State_Summary}
+US_state_totals <- US_by_State %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+          population = max(Population),
+          cases_per_thou = 1000* cases / population,
+          deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases > 0, population > 0)
+         
+```
+
+```{R US_State_Summary2}
+US_state_totals <- US_by_State %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+          population = max(Population),
+          cases_per_thou = 1000* cases / population,
+          deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases > 0, population > 0)
+         
+```
+
+
+```{R US_Model}
+mod <- lm(deaths_per_thou ~ cases_per_thou, data = US_state_totals)
+summary(mod)
+
+US_tot_w_pred <- US_state_totals %>% mutate(pred = predict(mod))
+
+```
+
+### There does appear to be correlation between cases and deaths, as expected:
+
+```{R US_Model_Visual}
+
+US_tot_w_pred %>% ggplot() + 
+  geom_point(aes(x = cases_per_thou, y=deaths_per_thou), color = "blue") + 
+  geom_point(aes(x = cases_per_thou, y = pred), color = "red") +
+  labs(title = str_c("Predicted Deaths vs. Actual in US"), y=NULL)
+         
+```
+
+### Let us pull in state land area to determine if population density makes a difference at the state level:
+
+```{R mytest}
+url <- "https://www.census.gov/geographies/reference-files/2010/geo/state-area.html"
+q <- read_html(url) %>% html_table(fill=T) 
+t2 <- as.data.frame(q[[1]][1:4])
+t3 <- t2[-c(1:4), ]
+t3 <- t3[-c(53), ]
+t3 <- t3[-c(54), ]
+t3 <- t3[,-c(3) ]
+colnames(t3) <- c('Province_State','Total_Area','Land_Area')
+t3$Land_Area <- as.numeric(as.character(gsub(",", "", t3$Land_Area)))
+
+                                         
+US_state_totals2 <- US_state_totals %>%
+  left_join(t3, by = c("Province_State"))
+
+US_state_totals2$Pop_Density <- US_state_totals2$population / US_state_totals2$Land_Area
+US_state_totals2 <- na.omit(US_state_totals2)
+
+US_state_totals2 <- US_state_totals2[US_state_totals2$Pop_Density < 3000,]
+
+
+```
+
+```{R State_Model}
+mod <- lm(cases_per_thou ~ Pop_Density, data = US_state_totals2)
+summary(mod)
+
+US_tot_w_pred2 <- US_state_totals2 %>% mutate(pred = predict(mod))
+
+```
+
+
+### At the state level, there is no correlation between population density and cases:
+
+```{R Pop Density V. Cases}
+
+US_tot_w_pred2 %>% ggplot() + 
+  geom_point(aes(x = cases_per_thou, y=Pop_Density), color = "blue") + 
+  geom_point(aes(x = cases_per_thou, y = pred), color = "red") +
+  labs(title = str_c("Population density vs. Cases per Thousand"), y=NULL)
+      
+```
+
+
+
+### Let us review the data at the county level.  We begin by pulling in additional metrics for analyis:
+
+```{R County_Data_Pull}
+url <- "https://www.openintro.org/data/csv/county_complete.csv"
+county_data <- read_csv(url)
+
+county_data$County <- gsub(" County", "", county_data$name)
+
+
+```
+
+
+### Additional calculations and cleanup are necessary:
+
+```{R US_County_Summary}
+US_county_totals <- US %>%
+  group_by(Province_State, Admin2) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+          population = max(Population),
+          cases_per_thou = 1000* cases / population,
+          deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases > 0, population > 0) %>%
+  ungroup()
+
+         
+```
+
+
+### There are many unneeded variables in the county data, let us filter to those that are most interesting:
+
+
+```{R County_Data_Cleanup}
+county_data$County <- gsub(" County", "", county_data$name)
+
+
+my_cols = c("state","County", "per_capita_income_2017", "poverty_2017","area_2010","bachelors_2017")
+
+my_cols2 = c(
+"state"
+,"County"
+,"age_over_18_2019"
+,"age_over_65_2019"
+,"age_over_85_2019"
+,"age_under_5_2019"
+,"asian_2019"
+,"avg_family_size_2019"
+,"bachelors_2019"
+,"black_2019"
+,"civilian_labor_force_2016"
+,"computer_2017"
+,"employed_2017"
+,"hispanic_2019"
+,"household_has_broadband_2019"
+,"household_has_computer_2019"
+,"household_has_smartphone_2019"
+,"households_2019"
+,"households_speak_asian_or_pac_isl_2019"
+,"households_speak_limited_english_2019"
+,"households_speak_other_2019"
+,"households_speak_other_indo_euro_lang_2019"
+,"households_speak_spanish_2019"
+,"housing_mobile_homes_2019"
+,"housing_one_unit_structures_2019"
+,"housing_two_unit_structures_2019"
+,"hs_grad_2019"
+,"mean_household_income_2019"
+,"mean_work_travel_2019"
+,"median_age_2019"
+,"median_household_income_2019"
+,"median_individual_income_2019"
+,"median_individual_income_age_25plus_2019"
+,"native_2019"
+,"other_single_race_2019"
+,"pac_isl_2019"
+,"per_capita_income_2019"
+,"persons_per_household_2019"
+,"pop_2019"
+,"poverty_2019"
+,"poverty_65_and_over_2019"
+,"poverty_under_18_2019"
+,"speak_english_only_2017"
+,"two_plus_races_2019"
+,"unemployment_rate_2019"
+,"uninsured_2019"
+,"uninsured_65_and_older_2019"
+,"uninsured_age_over_74_2017"
+,"uninsured_age_under_6_2017"
+,"uninsured_under_19_2019"
+,"uninsured_under_6_2019"
+,"veterans_2019"
+,"white_2019"
+,"white_not_hispanic_2019"
+,"women_16_to_50_birth_rate_2017"
+,"area_2010")
+
+
+
+county_data2 = subset(county_data, select = my_cols2)
+
+
+```
+
+### Cleaning up the summary data by adding fields and removing outliers for model creation:
+
+```{R County_Data_New_Fields}
+
+US_county_totals2 <- left_join(US_county_totals, county_data2, by=c('Province_State'='state', 'Admin2'='County'))
+
+US_county_totals2$Pop_Density <- US_county_totals2$population / US_county_totals2$area_2010 
+
+US_county_totals2 <- US_county_totals2[rowSums(is.na(US_county_totals2)) != ncol(US_county_totals2),]
+US_county_totals2 <- US_county_totals2[US_county_totals2$cases_per_thou < 1000,]
+US_county_totals2$uninsured_age_under_6_2017 <- as.numeric(US_county_totals2$uninsured_age_under_6_2017)
+US_county_totals2$employ_rate <- US_county_totals2$employed_2017 / US_county_totals2$pop_2019
+US_county_totals2$Deaths_per_case <-US_county_totals2$deaths / US_county_totals2$cases
+
+```
+
+### An initial model to understand which variables have the most predictive power:
+
+```{R Cases Model V1}
+mod3 <- lm(cases_per_thou ~ Pop_Density
++ age_over_18_2019
++ age_over_65_2019
++ age_over_85_2019
++ age_under_5_2019
++ asian_2019
++ avg_family_size_2019
++ bachelors_2019
++ black_2019
++ civilian_labor_force_2016
++ computer_2017
++ employ_rate
++ hispanic_2019
++ household_has_broadband_2019
++ household_has_computer_2019
++ household_has_smartphone_2019
++ households_speak_asian_or_pac_isl_2019
++ households_speak_limited_english_2019
++ households_speak_other_2019
++ households_speak_other_indo_euro_lang_2019
++ households_speak_spanish_2019
++ housing_mobile_homes_2019
++ housing_one_unit_structures_2019
++ housing_two_unit_structures_2019
++ hs_grad_2019
++ mean_household_income_2019
++ mean_work_travel_2019
++ median_age_2019
++ median_household_income_2019
++ median_individual_income_2019
++ median_individual_income_age_25plus_2019
++ native_2019
++ other_single_race_2019
++ pac_isl_2019
++ per_capita_income_2019
++ persons_per_household_2019
++ poverty_2019
++ poverty_65_and_over_2019
++ poverty_under_18_2019
++ speak_english_only_2017
++ two_plus_races_2019
++ unemployment_rate_2019
++ uninsured_2019
++ uninsured_65_and_older_2019
++ uninsured_age_over_74_2017
++ uninsured_age_under_6_2017
++ uninsured_under_19_2019
++ uninsured_under_6_2019
++ veterans_2019
++ white_2019
++ white_not_hispanic_2019
++ women_16_to_50_birth_rate_2017
+           , data = US_county_totals2)
+summary(mod3)
+```
+### There are a lot of variables with missing values.  Let us replace empty values with the mean:
+
+
+```{R Replace Missing Values with Mean}
+
+US_county_totals2$Pop_Density[is.na(US_county_totals2$Pop_Density)] <- mean(US_county_totals2$Pop_Density, na.rm = TRUE)
+
+US_county_totals2$age_under_5_2019[is.na(US_county_totals2$age_under_5_2019)] <- mean(US_county_totals2$age_under_5_2019, na.rm = TRUE)
+
+US_county_totals2$civilian_labor_force_2016[is.na(US_county_totals2$civilian_labor_force_2016)] <- mean(US_county_totals2$civilian_labor_force_2016, na.rm = TRUE)
+
+US_county_totals2$computer_2017[is.na(US_county_totals2$computer_2017)] <- mean(US_county_totals2$computer_2017, na.rm = TRUE)
+
+US_county_totals2$hispanic_2019[is.na(US_county_totals2$hispanic_2019)] <- mean(US_county_totals2$hispanic_2019, na.rm = TRUE)
+
+US_county_totals2$household_has_smartphone_2019[is.na(US_county_totals2$household_has_smartphone_2019)] <- mean(US_county_totals2$household_has_smartphone_2019, na.rm = TRUE)
+
+US_county_totals2$households_2019[is.na(US_county_totals2$households_2019)] <- mean(US_county_totals2$households_2019, na.rm = TRUE)
+
+US_county_totals2$households_speak_limited_english_2019[is.na(US_county_totals2$households_speak_limited_english_2019)] <- mean(US_county_totals2$households_speak_limited_english_2019, na.rm = TRUE)
+
+US_county_totals2$households_speak_other_2019[is.na(US_county_totals2$households_speak_other_2019)] <- mean(US_county_totals2$households_speak_other_2019, na.rm = TRUE)
+
+US_county_totals2$households_speak_other_indo_euro_lang_2019[is.na(US_county_totals2$households_speak_other_indo_euro_lang_2019)] <- mean(US_county_totals2$households_speak_other_indo_euro_lang_2019, na.rm = TRUE)
+
+US_county_totals2$households_speak_spanish_2019[is.na(US_county_totals2$households_speak_spanish_2019)] <- mean(US_county_totals2$households_speak_spanish_2019, na.rm = TRUE)
+
+US_county_totals2$housing_mobile_homes_2019[is.na(US_county_totals2$housing_mobile_homes_2019)] <- mean(US_county_totals2$housing_mobile_homes_2019, na.rm = TRUE)
+
+US_county_totals2$hs_grad_2019[is.na(US_county_totals2$hs_grad_2019)] <- mean(US_county_totals2$hs_grad_2019, na.rm = TRUE)
+
+US_county_totals2$mean_household_income_2019[is.na(US_county_totals2$mean_household_income_2019)] <- mean(US_county_totals2$mean_household_income_2019, na.rm = TRUE)
+
+US_county_totals2$median_household_income_2019[is.na(US_county_totals2$median_household_income_2019)] <- mean(US_county_totals2$median_household_income_2019, na.rm = TRUE)
+
+US_county_totals2$median_individual_income_2019[is.na(US_county_totals2$median_individual_income_2019)] <- mean(US_county_totals2$median_individual_income_2019, na.rm = TRUE)
+
+US_county_totals2$native_2019[is.na(US_county_totals2$native_2019)] <- mean(US_county_totals2$native_2019, na.rm = TRUE)
+
+US_county_totals2$per_capita_income_2019[is.na(US_county_totals2$per_capita_income_2019)] <- mean(US_county_totals2$per_capita_income_2019, na.rm = TRUE)
+
+US_county_totals2$persons_per_household_2019[is.na(US_county_totals2$persons_per_household_2019)] <- mean(US_county_totals2$persons_per_household_2019, na.rm = TRUE)
+
+US_county_totals2$pop_2019[is.na(US_county_totals2$pop_2019)] <- mean(US_county_totals2$pop_2019, na.rm = TRUE)
+
+US_county_totals2$poverty_2019[is.na(US_county_totals2$poverty_2019)] <- mean(US_county_totals2$poverty_2019, na.rm = TRUE)
+
+US_county_totals2$speak_english_only_2017[is.na(US_county_totals2$speak_english_only_2017)] <- mean(US_county_totals2$speak_english_only_2017, na.rm = TRUE)
+
+US_county_totals2$uninsured_2019[is.na(US_county_totals2$uninsured_2019)] <- mean(US_county_totals2$uninsured_2019, na.rm = TRUE)
+
+US_county_totals2$uninsured_age_under_6_2017[is.na(US_county_totals2$uninsured_age_under_6_2017)] <- mean(US_county_totals2$uninsured_age_under_6_2017, na.rm = TRUE)
+
+US_county_totals2$uninsured_under_19_2019[is.na(US_county_totals2$uninsured_under_19_2019)] <- mean(US_county_totals2$uninsured_under_19_2019, na.rm = TRUE)
+
+US_county_totals2$uninsured_under_6_2019[is.na(US_county_totals2$uninsured_under_6_2019)] <- mean(US_county_totals2$uninsured_under_6_2019, na.rm = TRUE)
+
+
+
+US_county_totals2$veterans_2019[is.na(US_county_totals2$veterans_2019)] <- mean(US_county_totals2$veterans_2019, na.rm = TRUE)
+
+US_county_totals2$women_16_to_50_birth_rate_2017[is.na(US_county_totals2$women_16_to_50_birth_rate_2017)] <- mean(US_county_totals2$women_16_to_50_birth_rate_2017, na.rm = TRUE)
+
+
+
+
+```
+
+
+### Let us build a new model leveraging the most predictive values from the previous attempt:
+
+
+```{R County Cases Model V2}
+
+
+my_cols <- c("Province_State"
+,"Admin2"
+,"cases_per_thou"
+,"Deaths_per_case"
+,"Pop_Density"
+,"computer_2017"
+,"household_has_smartphone_2019"
+,"households_2019"
+,"households_speak_spanish_2019"
+,"hs_grad_2019"
+,"mean_household_income_2019"
+,"median_household_income_2019"
+,"median_individual_income_2019"
+,"native_2019"
+,"per_capita_income_2019"
+,"speak_english_only_2017"
+,"uninsured_2019"
+,"uninsured_age_under_6_2017"
+,"uninsured_under_6_2019"
+,"veterans_2019")
+
+US_county_totals2 = subset(US_county_totals2, select = my_cols)
+US_county_totals3 <- US_county_totals2[complete.cases(US_county_totals2), ]
+
+
+mod3 <- lm(cases_per_thou ~ Pop_Density
++ computer_2017
++ household_has_smartphone_2019
++ households_speak_spanish_2019
++ hs_grad_2019
++ mean_household_income_2019
++ median_household_income_2019
++ median_individual_income_2019
++ native_2019
++ per_capita_income_2019
++ speak_english_only_2017
++ uninsured_2019
++ uninsured_age_under_6_2017
++ uninsured_under_6_2019
++ veterans_2019
+           , data = US_county_totals3)
+summary(mod3)
+
+US_county_tot_w_pred2 <- US_county_totals3 %>% mutate(pred2 = predict(mod3))
+
+
+```
+### While there are still a number of outliers, the model does identify a trend:
+
+
+```{R US_County_CaseModel_Visual}
+
+US_county_tot_w_pred2 %>% ggplot() + 
+  geom_point(aes(x = pred2, y=cases_per_thou), color = "blue") +
+  labs(title = str_c("Predicted Cases per Thousand vs Actual at the County Level"), y=NULL)
+         
+```
+
+### Let us take this a step further, and see if there is also any predictive power in determining deaths:
+
+
+```{R US_County_Deaths_Model}
+
+mod4 <- lm(Deaths_per_case ~ computer_2017
++ household_has_smartphone_2019
++ mean_household_income_2019
++ native_2019
++ uninsured_2019
++ uninsured_under_6_2019
++ veterans_2019
+           , data = US_county_totals3)
+summary(mod4)
+
+US_county_tot_w_pred3 <- US_county_totals3 %>% mutate(pred3 = predict(mod4))
+         
+```
+### The model does have some predictive power in determining deaths within a county. Economic factors such as higher income, having insurance, computers and smartphones improve survivability.  Veterans also appeared to be at higher risk.  Interestingly a larger Native American population actually reduces the risk of death, however it should be noted there may be bias in this outcome due to under-reporting.
+
+```{R Deaths per Case Prediction}
+
+US_county_tot_w_pred3 %>% ggplot() + 
+  geom_point(aes(x = pred3, y=Deaths_per_case), color = "blue") +
+  labs(title = str_c("Predicted deaths per Thousand vs Actual at the County Level"), y=NULL)
+         
+```
+
+# Conclusion
+
+#### New Covid cases have appeared to level off beginning in early 2022.  An analysis of Covid cases at the county level found that numerous economic factors can lead to increased exposure to Covid and increased risk of death.  Vulnerable populations are more likely to have more severe and reported cases, and more likely to have a reported cases lead to death.  One could infer that these vulnerable populations are less likely to seek medical care due to economic circumstances, and that the delayed treatment yields more unfavorable outcomes.  However the fact that these populations have demonstrated an increased risk of exposure contradicts that theory.  Therefore there are three possible scenarios which may explain this theory: 1) Cases are not underreported and the medical care this population is receiving is subpar, 2) Cases are underreported as individuals wait until the situation is dire before receiving care, elevating deaths per reported cases, which would mean that the population is even more at risk of exposure than the data shows, or 3) Cases are both underreported and the medical care recieved is subpar.  This last scenario would be dependant on how many cases are unreported.
+
