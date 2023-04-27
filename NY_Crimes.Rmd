@@ -1,0 +1,293 @@
+---
+title: "NY Shooting Crimes"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-04-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+
+
+library(caret)
+
+```
+
+## A study of shooting crimes in New york
+
+### This government data shows shooting incidents in New York City from 2006 through 2021 with a number of classifiers, including both victim and perpetrator demographics, shooting location and whether it was a fatality.
+
+```{r import_data, message = FALSE}
+file = "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv"
+mydata <- read.csv(file)
+```
+
+```{r crime}
+summary(mydata)
+```
+
+### Here we wrangle the data
+
+```{r Data Wrangling}
+mydata$OCCUR_DATE <- as.Date(mydata$OCCUR_DATE, format="%m/%d/%Y")
+mydata$STATISTICAL_MURDER_FLAG <- as.logical(mydata$STATISTICAL_MURDER_FLAG)
+
+df_grp_date = mydata %>% group_by(month = lubridate::floor_date(OCCUR_DATE, 'month')) %>% 
+  summarise(total_crime = n(),
+            .groups = 'drop')
+
+mydata$PERP_AGE_GROUP[mydata$PERP_AGE_GROUP == "1020"] <- "UNKNOWN"
+mydata$VIC_AGE_GROUP[mydata$VIC_AGE_GROUP == "1022"] <- "UNKNOWN"
+mydata$PERP_AGE_GROUP[mydata$PERP_AGE_GROUP == "940"] <- "UNKNOWN"
+mydata$PERP_AGE_GROUP[mydata$PERP_AGE_GROUP == "224"] <- "UNKNOWN"
+mydata$PERP_AGE_GROUP[mydata$PERP_AGE_GROUP == ""] <- "UNKNOWN"
+mydata$PERP_AGE_GROUP[mydata$PERP_AGE_GROUP == "(null)"] <- "UNKNOWN"
+
+mydata$PERP_AGE_GROUP <- factor(mydata$PERP_AGE_GROUP)
+
+mydata$PERP_SEX[mydata$PERP_SEX == ""] <- "U"
+mydata$PERP_SEX[mydata$PERP_SEX == "(null)"] <- "U"
+
+mydata$PERP_SEX <- factor(mydata$PERP_SEX)
+
+mydata$PERP_RACE[mydata$PERP_RACE == ""] <- "UNKNOWN"
+mydata$PERP_RACE <- factor(mydata$PERP_RACE)
+
+mydata$VIC_RACE[mydata$VIC_RACE == ""] <- "UNKNOWN"
+mydata$VIC_RACE <- factor(mydata$VIC_RACE)
+
+mydata$PERP_SEX <- factor(mydata$PERP_SEX) 
+mydata$VIC_SEX <- factor(mydata$VIC_SEX) 
+mydata$PERP_AGE_GROUP <- factor(mydata$PERP_AGE_GROUP)
+mydata$VIC_AGE_GROUP <- factor(mydata$VIC_AGE_GROUP)
+mydata$PERP_RACE <- factor(mydata$PERP_RACE)
+mydata$VIC_RACE <- factor(mydata$VIC_RACE)
+
+
+```
+
+### Crime had been steadily declining until 2020 when see see a significant spike.  This is likely the result of the aftermath of Covid.
+
+```{r Crime Plot, echo=FALSE}
+crime_smry <- table(month = lubridate::floor_date(mydata$OCCUR_DATE, 'month'))
+barplot(crime_smry,
+        main = "Total Crimes over Time",
+        xlab = "Time",
+        ylab = "Count of Crimes",
+        col = "blue",
+        horiz = FALSE)
+
+```
+
+### We see that crimes are more frequent in the summer months
+
+```{r Crime Plot2, echo=FALSE}
+crime_smry2 <- table(format(as.Date(mydata$OCCUR_DATE,format="%Y-%m-%d"), format = "%m"))
+
+barplot(crime_smry2,
+        main = "Total Crimes by Month of Year",
+        xlab = "Month of Year",
+        ylab = "Count of Crimes",
+        col = "Orange",
+        horiz = FALSE)
+
+```
+
+### Murders had been declining through 2015, although we see a steady rise since then.
+
+```{r murder plot, echo=FALSE}
+df_grp_date = mydata %>% group_by(month = lubridate::floor_date(OCCUR_DATE, 'month')) %>% 
+  summarise(total_crime = n(),
+            murders = sum(STATISTICAL_MURDER_FLAG == TRUE),
+            .groups = 'drop')
+df_grp_date$Murder_Rate <- df_grp_date$murders / df_grp_date$total_crime
+
+
+
+
+```
+
+```{r Wrapping }
+
+# Core wrapping function
+wrap.it <- function(x, len)
+{ 
+  sapply(x, function(y) paste(strwrap(y, len), 
+                              collapse = "\n"), 
+         USE.NAMES = FALSE)
+}
+
+
+# Call this function with a list or vector
+wrap.labels <- function(x, len)
+{
+  if (is.list(x))
+  {
+    lapply(x, wrap.it, len)
+  } else {
+    wrap.it(x, len)
+  }
+}
+```
+
+
+
+
+
+```{R Test}
+
+ggplot(data=df_grp_date, aes(x = month, y = Murder_Rate)) + geom_point() + 
+  geom_smooth() + ggtitle("Murder Rate over Time") + xlab("Month") + ylab("Murder Rate per Month")
+
+crime_smry_perp_age <- table(mydata$PERP_AGE_GROUP)
+crime_smry_perp_sex <- table(mydata$PERP_SEX)
+crime_smry_perp_race <- table(mydata$PERP_RACE)
+crime_smry_vic_age <- table(mydata$VIC_AGE_GROUP)
+crime_smry_vic_sex <- table(mydata$VIC_SEX)
+crime_smry_vic_race <- table(mydata$VIC_RACE)
+crime_smry_BORO <- table(mydata$BORO)
+
+crime_smry_perp_race <- crime_smry_perp_race[order(crime_smry_perp_race,decreasing=TRUE)]
+crime_smry_vic_race <- crime_smry_vic_race[order(crime_smry_vic_race,decreasing=TRUE)]
+
+crime_smry_perp_race2 <- wrap.labels(names(crime_smry_perp_race), 10)
+crime_smry_vic_race2 <- wrap.labels(names(crime_smry_vic_race), 10)
+
+
+barplot(crime_smry_perp_age,
+        main = "Total Crimes by Perp Age",
+        xlab = "Age Group",
+        ylab = "Crimes",
+        col = "Orange",
+        horiz = FALSE)
+barplot(crime_smry_perp_sex,
+        main = "Total Crimes by Perp Sex",
+        xlab = "Crimes",
+        ylab = "Sex",
+        col = "Orange",
+        horiz = TRUE)
+barplot( crime_smry_perp_race ,
+        main = "Total Crimes by Perp Race",
+        ylab = "Crimes",
+        col = "Orange",
+        names.arg = crime_smry_perp_race2,
+        cex.names=0.7,
+        horiz = FALSE,
+        las = 2)
+
+barplot(crime_smry_vic_age,
+        main = "Total Crimes by Victim Age",
+        xlab = "Age Group",
+        ylab = "Crimes",
+        col = "Orange",
+        horiz = FALSE)
+barplot(crime_smry_vic_sex,
+        main = "Total Crimes by Victim Sex",
+        xlab = "Sex",
+        ylab = "Crimes",
+        col = "Orange",
+        horiz = FALSE)
+
+ barplot(crime_smry_vic_race,
+        main = "Total Crimes by Victim Race",
+        ylab = "Crimes",
+        col = "Orange",
+        names.arg = crime_smry_vic_race2,
+        cex.names=0.7,
+        horiz = FALSE,
+        las=2)
+ 
+  barplot(crime_smry_BORO,
+        main = "Total Crimes by Boro",
+        ylab = "Crimes",
+        col = "Orange",
+        cex.names=0.7,
+        horiz = FALSE,
+        las=2)
+
+ 
+
+```
+
+### A simple regression model using various demographic criteria to predict if a crime will be a murder
+
+```{r model murder, echo=FALSE}
+mod <- lm(STATISTICAL_MURDER_FLAG ~ PERP_SEX + PERP_AGE_GROUP + VIC_AGE_GROUP + PERP_RACE, data = mydata)
+summary(mod)
+```
+
+
+```{r model murder2, echo=FALSE}
+
+
+
+mydata$PERP_AGE_GROUP25_44[mydata$PERP_AGE_GROUP == "25-44"] <- 1
+mydata$PERP_AGE_GROUP25_44[mydata$PERP_AGE_GROUP != "25-44"] <- 0
+
+mydata$PERP_AGE_GROUP45_64[mydata$PERP_AGE_GROUP == "45-64"] <- 1
+mydata$PERP_AGE_GROUP45_64[mydata$PERP_AGE_GROUP != "45-64"] <- 0
+
+mydata$PERP_AGE_GROUP65plus[mydata$PERP_AGE_GROUP == "65+"] <- 1
+mydata$PERP_AGE_GROUP65plus[mydata$PERP_AGE_GROUP != "65+"] <- 0
+
+mydata$PERP_AGE_GROUP_UNK[mydata$PERP_AGE_GROUP == "UNKNOWN"] <- 1
+mydata$PERP_AGE_GROUP_UNK[mydata$PERP_AGE_GROUP != "UNKNOWN"] <- 0
+
+mydata$VIC_AGE_GROUP18_24[mydata$VIC_AGE_GROUP == "18-24"] <- 1
+mydata$VIC_AGE_GROUP18_24[mydata$VIC_AGE_GROUP != "18-24"] <- 0
+
+mydata$VIC_AGE_GROUP25_44[mydata$VIC_AGE_GROUP == "25-44"] <- 1
+mydata$VIC_AGE_GROUP25_44[mydata$VIC_AGE_GROUP != "25-44"] <- 0
+
+mydata$VIC_AGE_GROUP45_64[mydata$VIC_AGE_GROUP == "45-64"] <- 1
+mydata$VIC_AGE_GROUP45_64[mydata$VIC_AGE_GROUP != "45-64"] <- 0
+
+mydata$VIC_AGE_GROUP65plus[mydata$VIC_AGE_GROUP == "65+"] <- 1
+mydata$VIC_AGE_GROUP65plus[mydata$VIC_AGE_GROUP != "65+"] <- 0
+
+mydata$PERP_SEX_U[mydata$PERP_SEX  == "U"] <- 1
+mydata$PERP_SEX_U[mydata$PERP_SEX != "U"] <- 0
+
+set.seed(1)
+sample <- sample(c(TRUE, FALSE), nrow(mydata), replace=TRUE, prob=c(0.7,0.3))
+train <- mydata[sample, ]
+test <- mydata[!sample, ]
+
+
+
+mod <- lm(STATISTICAL_MURDER_FLAG ~ PERP_AGE_GROUP25_44 + PERP_AGE_GROUP45_64 + PERP_AGE_GROUP65plus + PERP_AGE_GROUP_UNK +
+            VIC_AGE_GROUP18_24 + VIC_AGE_GROUP25_44 + VIC_AGE_GROUP45_64 + VIC_AGE_GROUP65plus +
+            PERP_SEX_U, data = train)
+summary(mod)
+
+train_pred <- train %>% mutate(pred = predict(mod))
+
+test_pred <- train %>% mutate(pred = predict(mod))
+
+
+predicted <- predict(mod, test, type="response")
+
+
+
+max(test_pred$pred)
+
+#convert defaults from "Yes" and "No" to 1's and 0's
+test_pred$default <- ifelse(test_pred$STATISTICAL_MURDER_FLAG=="TRUE", "1", "0")
+test_pred$pred2[test_pred$pred < 0.3] <- "0"
+test_pred$pred2[test_pred$pred >= 0.3] <- "1"
+
+
+```
+### There were 3,467 murders out of 17,913 crimes, a rate of 19.3%.  The model score has a maximum of 44.6%, and so the accuracy is dependent on the cut-off.  With a cutoff of 30%, The model accurately predicted 79.8% of records, and captures only 145 of the 3,467 murders, or 4.2%, with a false positive rate of 33.3%. This cutoff can be reduced to capture more true positives, but the false positive rate would also increase.  Overall, there is minimal information value in this data to accurately predict the probability of a crime being a murder. 
+
+
+```{R US_County_CaseModel_Visual}
+
+confusionMatrix(as.factor(test_pred$default), as.factor(test_pred$pred2))
+
+```
