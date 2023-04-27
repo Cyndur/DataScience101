@@ -21,7 +21,7 @@ library(dplyr)
 library(lubridate)
 library(rvest)
 ```
-### Source of Covid data:
+### Covid data compiled by John's Hopkins which provides cases and deaths at the county level for the US:
 
 
 ```{r get_jhu_data}
